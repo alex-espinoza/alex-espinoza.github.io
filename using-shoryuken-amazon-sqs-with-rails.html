@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="canonical" href="https://alex.aspria.net/using-shoryuken-amazon-sqs-with-rails">
+    <link rel="shortcut icon" href="/favicon.ico">
+    <meta name="description" content="Setting up queueing for background jobs is a pretty typical task in Rails. I usually use Sidekiq or Resque to get this done, but I was recently tasked with working with Amazon SQS. Fortunately, there is a gem called Shoryuken that will help us work with it. If you know..."></meta>
+    <link type="text/css" rel="stylesheet" href="/assets/main-28f217cddcf82991ef8cd7dfd1b23edd146ceeed0ac389b6e03d149b32cb6f92.css">
+  </head>
+  <body>
+    <div class="single-post-container">
+  <div class="post-header">
+    <h1 class="post-title-main">Using Shoryuken (Amazon SQS) with Rails | alex espinoza</h1>
+  </div>
+  <div class="post-content">
+    <p>Setting up queueing for background jobs is a pretty typical task in Rails. I usually use Sidekiq or Resque to get this done, but I was recently tasked with working with Amazon SQS. Fortunately, there is a gem called <a href="https://github.com/phstc/shoryuken">Shoryuken</a> that will help us work with it. If you know how to set up Sidekiq and create workers, this will be extremely familiar. In this tutorial, I’ll be fetching and saving some Instagram posts via a rake task using their <a href="https://github.com/Instagram/instagram-ruby-gem">API wrapper gem</a>.</p>
+
+<p>First, let’s get everything set up on the Amazon side. Log in to your Amazon AWS account and click on <strong>SQS</strong> under <strong>Application Services</strong>. Click on <strong>Create New Queue</strong> and enter a queue name. I’ll be using <strong>post_test</strong> as the queue name for this tutorial. I’ll also be using the default queue settings provided.</p>
+
+<p>Onto the Shoryuken side of things. Add <code class="highlighter-rouge">gem "shoryuken"</code> to your Gemfile and run <code class="highlighter-rouge">bundle install</code>.</p>
+
+<p>Let’s create the worker class that will get and save the Instagram posts. It will live in our <code class="highlighter-rouge">app/workers</code> directory. I’ll be saving it as <code class="highlighter-rouge">instagram_worker.rb</code>:</p>
+
+<figure class="highlight"><pre><code class="language-ruby" data-lang="ruby"><span class="k">class</span> <span class="nc">InstagramWorker</span>
+  <span class="kp">include</span> <span class="no">Shoryuken</span><span class="o">::</span><span class="no">Worker</span>
+
+  <span class="n">shoryuken_options</span> <span class="ss">queue: </span><span class="s2">"post_test"</span><span class="p">,</span> <span class="ss">auto_delete: </span><span class="kp">true</span><span class="p">,</span> <span class="ss">body_parser: :json</span>
+
+  <span class="k">def</span> <span class="nf">perform</span><span class="p">(</span><span class="n">sqs_msg</span><span class="p">,</span> <span class="n">data</span><span class="p">)</span>
+    <span class="n">post</span> <span class="o">=</span> <span class="no">Instagram</span><span class="p">.</span><span class="nf">media_item</span><span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="s2">"post"</span><span class="p">])</span>
+
+    <span class="n">new_post</span> <span class="o">=</span> <span class="no">Post</span><span class="p">.</span><span class="nf">new</span><span class="p">({</span>
+      <span class="ss">content_type: </span><span class="n">post</span><span class="p">.</span><span class="nf">type</span><span class="p">,</span>
+      <span class="ss">text: </span><span class="n">post</span><span class="p">.</span><span class="nf">caption</span><span class="p">,</span>
+      <span class="ss">instagram_media_id: </span><span class="n">post</span><span class="p">.</span><span class="nf">id</span>
+    <span class="p">})</span>
+
+    <span class="n">new_post</span><span class="p">.</span><span class="nf">image_from_url</span><span class="p">(</span><span class="n">post</span><span class="p">.</span><span class="nf">images</span><span class="p">.</span><span class="nf">standard_resolution</span><span class="p">.</span><span class="nf">url</span><span class="p">)</span>
+    <span class="n">new_post</span><span class="p">.</span><span class="nf">save!</span>
+  <span class="k">end</span>
+<span class="k">end</span></code></pre></figure>
+
+<p>I’ll get into the <code class="highlighter-rouge">shoryuken_options</code> used above in a bit. Next, let’s set up the rake task which will fetch the list of Instagram posts by user and enqueue jobs.</p>
+
+<figure class="highlight"><pre><code class="language-ruby" data-lang="ruby"><span class="nb">require</span> <span class="s2">"rails"</span>
+<span class="nb">require</span> <span class="s2">"net/http"</span>
+
+<span class="n">task</span> <span class="ss">:get_new_instagram_posts</span> <span class="o">=&gt;</span> <span class="p">[</span><span class="ss">:environment</span><span class="p">]</span> <span class="k">do</span>
+  <span class="k">def</span> <span class="nf">get_newest_media</span><span class="p">(</span><span class="n">user</span><span class="p">)</span>
+    <span class="nb">id</span> <span class="o">=</span> <span class="no">Instagram</span><span class="p">.</span><span class="nf">user_search</span><span class="p">(</span><span class="n">user</span><span class="p">).</span><span class="nf">first</span><span class="p">.</span><span class="nf">id</span>
+
+    <span class="no">Instagram</span><span class="p">.</span><span class="nf">user_recent_media</span><span class="p">(</span><span class="nb">id</span><span class="p">).</span><span class="nf">each</span> <span class="k">do</span> <span class="o">|</span><span class="n">post</span><span class="o">|</span>
+      <span class="n">create_post</span><span class="p">(</span><span class="n">post</span><span class="p">.</span><span class="nf">id</span><span class="p">)</span>
+    <span class="k">end</span>
+  <span class="k">end</span>
+
+  <span class="k">def</span> <span class="nf">create_post</span><span class="p">(</span><span class="n">post_id</span><span class="p">)</span>
+    <span class="no">InstagramWorker</span><span class="p">.</span><span class="nf">perform_async</span><span class="p">(</span><span class="ss">post: </span><span class="n">post_id</span><span class="p">)</span>
+  <span class="k">end</span>
+
+  <span class="n">active_users</span> <span class="o">=</span> <span class="p">[</span><span class="s2">"instagram_username1"</span><span class="p">,</span> <span class="s2">"instagram_username2"</span><span class="p">,</span> <span class="s2">"instagram_username3"</span><span class="p">]</span>
+  <span class="n">active_users</span><span class="p">.</span><span class="nf">each</span> <span class="k">do</span> <span class="o">|</span><span class="n">user</span><span class="o">|</span>
+    <span class="n">get_newest_media</span><span class="p">(</span><span class="n">user</span><span class="p">)</span>
+  <span class="k">end</span>
+<span class="k">end</span></code></pre></figure>
+
+<p>The <code class="highlighter-rouge">InstagramWorker.perform_async(post: post_id)</code> call will queue the creation of a new post and save the <code class="highlighter-rouge">post_id</code> in our <strong>post_test</strong> SQS queue. Our worker will read the data we sent to the queue as JSON and get the post id using <code class="highlighter-rouge">data["post"]</code>. It will then automatically delete the job only once it is successfully completed.</p>
+
+<p>Next, we need to create our <code class="highlighter-rouge">shoryuken.yml</code> config file, which will be saved in <code class="highlighter-rouge">app/config</code>:</p>
+
+<figure class="highlight"><pre><code class="language-ruby" data-lang="ruby"><span class="ss">aws:
+  access_key_id: </span><span class="o">&lt;</span><span class="sx">%= ENV["AWS_ACCESS_KEY_ID"] %&gt;
+  secret_access_key: &lt;%=</span> <span class="no">ENV</span><span class="p">[</span><span class="s2">"AWS_SECRET_ACCESS_KEY"</span><span class="p">]</span> <span class="o">%&gt;</span>
+  <span class="ss">region: </span><span class="o">&lt;</span><span class="sx">%= ENV["AWS_REGION"] %&gt;
+concurrency: 10
+queues:
+  - post_test</span></code></pre></figure>
+
+<p><a href="https://github.com/phstc/shoryuken#configuration">You can read more about configuring shoryuken.yml in the README</a>. I used the <a href="https://github.com/bkeepers/dotenv">dot-env gem</a> to save my AWS access keys.</p>
+
+<p>Now with everything done, we just need to run the Shoryuken process with <code class="highlighter-rouge">bundle exec shoryuken -R -C config/shoryuken.yml</code> inside the Rails app directory. The <code class="highlighter-rouge">-R</code> flag will load the Rails app and read all the worker classes inside <code class="highlighter-rouge">app/workers</code>.</p>
+
+<p>In another window, running <code class="highlighter-rouge">rake get_new_instagram_posts</code> will get everything started. You can see the data pass through SQS if you go to the Amazon SQS console, right click on your queue name, select <strong>View/Delete Messages</strong> and then click on the <strong>Start Polling for Messages</strong> button. This is also one way to debug issues and make sure the correct data you need is being passed through to your worker.</p>
+
+<p>Deploying will be different depending on where you host your production app, but I would start with reading the <a href="https://github.com/phstc/shoryuken/wiki/Deployment">Deployment</a> section of the wiki. You will also need to change your <code class="highlighter-rouge">shoryuken.yml</code> config settings and your SQS queue settings based on your app’s needs.</p>
+
+<p>All in all, Shoryuken is as easy to use and set up as Sidekiq. It is in active development and has a lot of the same features such as time delaying, ActiveJob support, load balancing, and more. Learn more about it by reading the <a href="https://github.com/phstc/shoryuken">README</a> and the <a href="https://github.com/phstc/shoryuken/wiki">wiki</a>. Happy queueing.</p>
+
+
+  </div>
+</div>
+
+<hr>
+
+    <!-- <script defer>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+    (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+    m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+    })(window,document,'script','//giddygourmand.com/analytics.js','ga');
+
+    ga('create', 'UA-86794210-1', 'auto');
+    ga('require', 'linkid');
+    ga('send', 'pageview');
+</script> -->
+<script src="//ajax.googleapis.com/ajax/libs/webfont/1.5.18/webfont.js" defer></script>
+<script type="text/javascript" src="/assets/vendor-405c11704bae3e1ea2b497b26c67bac91ce3efdc428e5957afb967782bd75c43.js" defer></script>
+<script type="text/javascript" src="/assets/site-172b9236c8c656811b590a8a2a0c046677f967282807212ba1efdbd6fcaf97f1.js" defer></script>
+
+  </body>
+</html>

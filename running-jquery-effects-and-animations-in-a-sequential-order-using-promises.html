@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="canonical" href="https://alex.aspria.net/running-jquery-effects-and-animations-in-a-sequential-order-using-promises">
+    <link rel="shortcut icon" href="/favicon.ico">
+    <meta name="description" content="I had some jQuery effects and animations that I wanted to run in a sequential order. By default, jQuery runs animations asynchronously. That means, if I had the following code:"></meta>
+    <link type="text/css" rel="stylesheet" href="/assets/main-28f217cddcf82991ef8cd7dfd1b23edd146ceeed0ac389b6e03d149b32cb6f92.css">
+  </head>
+  <body>
+    <div class="single-post-container">
+  <div class="post-header">
+    <h1 class="post-title-main">Running jQuery effects and animations in a sequential order using promises | alex espinoza</h1>
+  </div>
+  <div class="post-content">
+    <p>I had some jQuery effects and animations that I wanted to run in a sequential order. By default, jQuery runs animations asynchronously. That means, if I had the following code:</p>
+
+<figure class="highlight"><pre><code class="language-javascript" data-lang="javascript"><span class="nx">$</span><span class="p">(</span><span class="s1">'.container1'</span><span class="p">).</span><span class="nx">fadeIn</span><span class="p">(</span><span class="s1">'slow'</span><span class="p">);</span>
+<span class="nx">$</span><span class="p">(</span><span class="s1">'.container2'</span><span class="p">).</span><span class="nx">fadeOut</span><span class="p">(</span><span class="s1">'slow'</span><span class="p">);</span></code></pre></figure>
+
+<p>The animations on both containers would be run at the same time. The <code class="highlighter-rouge">fadeOut</code> animation on <code class="highlighter-rouge">container2</code> won’t wait to be run until after the <code class="highlighter-rouge">fadeIn</code> animation on <code class="highlighter-rouge">container1</code> is complete.</p>
+
+<p>But I don’t want that to happen! I also didn’t want to use callbacks as I want to do text changing animations on various different elements and it would get messy, very quickly. So, what to do? Let’s use promises!</p>
+
+<p>In jQuery, promises are a way to run code after all effects or animations on a selector passed to <code class="highlighter-rouge">.promise()</code> is complete. <a href="http://api.jquery.com/promise/">You can read more about promises on the jQuery documentation website.</a> Here is how I implemented it:</p>
+
+<figure class="highlight"><pre><code class="language-javascript" data-lang="javascript"><span class="nx">dialogueExchange1</span><span class="p">();</span>
+
+<span class="kd">function</span> <span class="nx">dialogueExchange1</span><span class="p">()</span> <span class="p">{</span>
+  <span class="nx">$</span><span class="p">(</span><span class="s1">'.text-area1'</span><span class="p">).</span><span class="nx">text</span><span class="p">(</span><span class="s2">"hey"</span><span class="p">);</span>
+  <span class="nx">$</span><span class="p">(</span><span class="s1">'.text-area1'</span><span class="p">).</span><span class="nx">delay</span><span class="p">(</span><span class="mi">1000</span><span class="p">).</span><span class="nx">showDialogue</span><span class="p">(</span><span class="mi">800</span><span class="p">,</span> <span class="mi">3000</span><span class="p">).</span><span class="nx">prepareDialogue</span><span class="p">(</span><span class="mi">800</span><span class="p">,</span> <span class="s2">"hey, are you awake?"</span><span class="p">);</span>
+
+  <span class="nx">$</span><span class="p">(</span><span class="s1">'.text-area1, .text-area2, .text-area3'</span><span class="p">).</span><span class="nx">promise</span><span class="p">().</span><span class="nx">done</span><span class="p">(</span><span class="kd">function</span><span class="p">()</span> <span class="p">{</span>
+    <span class="nx">dialogueExchange2</span><span class="p">();</span>
+  <span class="p">});</span>
+<span class="p">}</span>
+
+<span class="kd">function</span> <span class="nx">dialogueExchange2</span><span class="p">()</span> <span class="p">{</span>
+  <span class="nx">$</span><span class="p">(</span><span class="s1">'.text-area1'</span><span class="p">).</span><span class="nx">delay</span><span class="p">(</span><span class="mi">900</span><span class="p">).</span><span class="nx">showDialogue</span><span class="p">(</span><span class="mi">800</span><span class="p">,</span> <span class="mi">4000</span><span class="p">).</span><span class="nx">prepareDialogue</span><span class="p">(</span><span class="mi">800</span><span class="p">,</span> <span class="s2">"wake up"</span><span class="p">);</span>
+
+  <span class="nx">$</span><span class="p">(</span><span class="s1">'.text-area3'</span><span class="p">).</span><span class="nx">text</span><span class="p">(</span><span class="s2">"..."</span><span class="p">);</span>
+  <span class="nx">$</span><span class="p">(</span><span class="s1">'.text-area3'</span><span class="p">).</span><span class="nx">delay</span><span class="p">(</span><span class="mi">1800</span><span class="p">).</span><span class="nx">showDialogue</span><span class="p">(</span><span class="mi">800</span><span class="p">,</span> <span class="mi">1500</span><span class="p">).</span><span class="nx">fadeOut</span><span class="p">(</span><span class="mi">800</span><span class="p">);</span>
+
+  <span class="nx">$</span><span class="p">(</span><span class="s1">'.text-area1, .text-area2, .text-area3'</span><span class="p">).</span><span class="nx">promise</span><span class="p">().</span><span class="nx">done</span><span class="p">(</span><span class="kd">function</span><span class="p">()</span> <span class="p">{</span>
+    <span class="nx">dialogueExchange3</span><span class="p">();</span>
+  <span class="p">});</span>
+<span class="p">}</span>
+
+<span class="kd">function</span> <span class="nx">dialogueExchange3</span><span class="p">()</span> <span class="p">{</span>
+  <span class="nx">$</span><span class="p">(</span><span class="s1">'.text-area1'</span><span class="p">).</span><span class="nx">delay</span><span class="p">(</span><span class="mi">900</span><span class="p">).</span><span class="nx">showDialogue</span><span class="p">(</span><span class="mi">800</span><span class="p">,</span> <span class="mi">4000</span><span class="p">).</span><span class="nx">prepareDialogue</span><span class="p">(</span><span class="mi">800</span><span class="p">,</span> <span class="s2">"come on let's go"</span><span class="p">);</span>
+
+  <span class="nx">$</span><span class="p">(</span><span class="s1">'.text-area2'</span><span class="p">).</span><span class="nx">text</span><span class="p">(</span><span class="s2">"hold on"</span><span class="p">);</span>
+  <span class="nx">$</span><span class="p">(</span><span class="s1">'.text-area2'</span><span class="p">).</span><span class="nx">delay</span><span class="p">(</span><span class="mi">1200</span><span class="p">).</span><span class="nx">showDialogue</span><span class="p">(</span><span class="mi">800</span><span class="p">,</span> <span class="mi">1500</span><span class="p">).</span><span class="nx">fadeOut</span><span class="p">(</span><span class="mi">800</span><span class="p">);</span>
+<span class="p">}</span></code></pre></figure>
+
+<p>The <code class="highlighter-rouge">dialogueExchange1()</code> function will be run first. The <code class="highlighter-rouge">.promise()</code> method inside that function will then wait for all animations on the three <code class="highlighter-rouge">text-area</code> selectors to be completed before running <code class="highlighter-rouge">dialogueExchange2()</code>. The same then happens in that function and so on. <a href="http://jsfiddle.net/e3QpA/4/">Check out this jsFiddle link for a live demo.</a></p>
+
+
+  </div>
+</div>
+
+<hr>
+
+    <!-- <script defer>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+    (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+    m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+    })(window,document,'script','//giddygourmand.com/analytics.js','ga');
+
+    ga('create', 'UA-86794210-1', 'auto');
+    ga('require', 'linkid');
+    ga('send', 'pageview');
+</script> -->
+<script src="//ajax.googleapis.com/ajax/libs/webfont/1.5.18/webfont.js" defer></script>
+<script type="text/javascript" src="/assets/vendor-405c11704bae3e1ea2b497b26c67bac91ce3efdc428e5957afb967782bd75c43.js" defer></script>
+<script type="text/javascript" src="/assets/site-172b9236c8c656811b590a8a2a0c046677f967282807212ba1efdbd6fcaf97f1.js" defer></script>
+
+  </body>
+</html>

@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="canonical" href="https://alex.aspria.net/testing-delayed-job-tasks-with-timecop-in-rspec">
+    <link rel="shortcut icon" href="/favicon.ico">
+    <meta name="description" content="I had an issue testing time sensitive delayed_job tasks with timecop using RSpec. I have a method that posts tweets at a scheduled time that is queued using delayed_job. Timecop’s travel method should take care of this and run the queued job after it passes the tweet’s scheduled time, but..."></meta>
+    <link type="text/css" rel="stylesheet" href="/assets/main-28f217cddcf82991ef8cd7dfd1b23edd146ceeed0ac389b6e03d149b32cb6f92.css">
+  </head>
+  <body>
+    <div class="single-post-container">
+  <div class="post-header">
+    <h1 class="post-title-main">Testing time sensitive delayed_job tasks with timecop in RSpec | alex espinoza</h1>
+  </div>
+  <div class="post-content">
+    <p>I had an issue testing time sensitive delayed_job tasks with timecop using RSpec. I have a method that posts tweets at a scheduled time that is queued using delayed_job. Timecop’s <code class="highlighter-rouge">travel</code> method should take care of this and run the queued job after it passes the tweet’s scheduled time, but it wasn’t working. Here is how my test looked like:</p>
+
+<figure class="highlight"><pre><code class="language-ruby" data-lang="ruby"><span class="n">describe</span> <span class="s1">'- will be tweeted -'</span> <span class="k">do</span>
+  <span class="n">before</span><span class="p">(</span><span class="ss">:each</span><span class="p">)</span> <span class="k">do</span>
+    <span class="n">test_time</span> <span class="o">=</span> <span class="no">Time</span><span class="p">.</span><span class="nf">utc</span><span class="p">(</span><span class="mi">2013</span><span class="p">,</span> <span class="mi">8</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">18</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+    <span class="no">Timecop</span><span class="p">.</span><span class="nf">freeze</span><span class="p">(</span><span class="n">test_time</span><span class="p">)</span>
+  <span class="k">end</span>
+
+  <span class="n">after</span><span class="p">(</span><span class="ss">:each</span><span class="p">)</span> <span class="p">{</span> <span class="no">Timecop</span><span class="p">.</span><span class="nf">return</span> <span class="p">}</span>
+
+  <span class="n">it</span> <span class="s1">'only at the time specified by its scheduled_time column.'</span> <span class="k">do</span>
+    <span class="n">valid_sign_in_via_twitter</span>
+    <span class="n">valid_tweet_form_input</span>
+    <span class="n">expect</span><span class="p">(</span><span class="no">Delayed</span><span class="o">::</span><span class="no">Job</span><span class="p">.</span><span class="nf">count</span><span class="p">).</span><span class="nf">to</span> <span class="n">eq</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+    <span class="n">scheduled_time_of_test_tweet</span> <span class="o">=</span> <span class="no">Time</span><span class="p">.</span><span class="nf">utc</span><span class="p">(</span><span class="mi">2013</span><span class="p">,</span> <span class="mi">8</span><span class="p">,</span> <span class="mi">4</span><span class="p">,</span> <span class="mi">18</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+    <span class="n">expect</span><span class="p">(</span><span class="no">Tweet</span><span class="p">.</span><span class="nf">first</span><span class="p">.</span><span class="nf">scheduled_time</span><span class="p">).</span><span class="nf">to</span> <span class="n">eq</span><span class="p">(</span><span class="n">scheduled_time_of_test_tweet</span><span class="p">)</span>
+    <span class="no">Timecop</span><span class="p">.</span><span class="nf">travel</span><span class="p">(</span><span class="no">Time</span><span class="p">.</span><span class="nf">now</span> <span class="o">+</span> <span class="mi">5</span><span class="p">.</span><span class="nf">days</span><span class="p">)</span>
+    <span class="n">expect</span><span class="p">(</span><span class="no">Delayed</span><span class="o">::</span><span class="no">Job</span><span class="p">.</span><span class="nf">count</span><span class="p">).</span><span class="nf">to</span> <span class="n">eq</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+    <span class="n">expect</span><span class="p">(</span><span class="no">Tweet</span><span class="p">.</span><span class="nf">first</span><span class="p">.</span><span class="nf">was_tweeted</span><span class="p">).</span><span class="nf">to</span> <span class="n">eq</span><span class="p">(</span><span class="kp">true</span><span class="p">)</span>
+  <span class="k">end</span>
+<span class="k">end</span></code></pre></figure>
+
+<p>Before the test is run, I used timecop to <code class="highlighter-rouge">freeze</code> the time at August 3, 2013 18:00 UTC. The <code class="highlighter-rouge">valid_tweet_form_input</code> method schedules a tweet to be posted at August 4, 2013 18:00 UTC. Inside the test I call <code class="highlighter-rouge">Timecop.travel(Time.now + 5.days)</code> which brings the time to August 8, 2013 18:00 UTC, which means the queued job should have been run. My test was failing at <code class="highlighter-rouge">expect(Delayed::Job.count).to eq(0)</code>.</p>
+
+<p>After much trial and error, and reading the delayed_job and timecop documentation, <a href="http://stackoverflow.com/a/7073027/1447611">I came across this helpful post on StackOverflow.</a> Turns out that delayed_job has a way to process everything that is in the job queue and return the number of jobs that succeeded and failed using <code class="highlighter-rouge">Delayed::Worker.new.work_off</code>. Let’s implement that into the test:</p>
+
+<figure class="highlight"><pre><code class="language-ruby" data-lang="ruby"><span class="n">it</span> <span class="s1">'only at the time specified by its scheduled_time column.'</span> <span class="k">do</span>
+  <span class="n">valid_sign_in_via_twitter</span>
+  <span class="n">valid_tweet_form_input</span>
+  <span class="n">expect</span><span class="p">(</span><span class="no">Delayed</span><span class="o">::</span><span class="no">Job</span><span class="p">.</span><span class="nf">count</span><span class="p">).</span><span class="nf">to</span> <span class="n">eq</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+  <span class="n">scheduled_time_of_test_tweet</span> <span class="o">=</span> <span class="no">Time</span><span class="p">.</span><span class="nf">utc</span><span class="p">(</span><span class="mi">2013</span><span class="p">,</span> <span class="mi">8</span><span class="p">,</span> <span class="mi">4</span><span class="p">,</span> <span class="mi">18</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+  <span class="n">expect</span><span class="p">(</span><span class="no">Tweet</span><span class="p">.</span><span class="nf">first</span><span class="p">.</span><span class="nf">scheduled_time</span><span class="p">).</span><span class="nf">to</span> <span class="n">eq</span><span class="p">(</span><span class="n">scheduled_time_of_test_tweet</span><span class="p">)</span>
+  <span class="no">Timecop</span><span class="p">.</span><span class="nf">travel</span><span class="p">(</span><span class="no">Time</span><span class="p">.</span><span class="nf">now</span> <span class="o">+</span> <span class="mi">5</span><span class="p">.</span><span class="nf">days</span><span class="p">)</span>
+  <span class="n">successes</span><span class="p">,</span> <span class="n">failures</span> <span class="o">=</span> <span class="no">Delayed</span><span class="o">::</span><span class="no">Worker</span><span class="p">.</span><span class="nf">new</span><span class="p">.</span><span class="nf">work_off</span>
+  <span class="n">expect</span><span class="p">(</span><span class="n">successes</span><span class="p">).</span><span class="nf">to</span> <span class="n">eq</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+  <span class="n">expect</span><span class="p">(</span><span class="n">failures</span><span class="p">).</span><span class="nf">to</span> <span class="n">eq</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+  <span class="n">expect</span><span class="p">(</span><span class="no">Delayed</span><span class="o">::</span><span class="no">Job</span><span class="p">.</span><span class="nf">count</span><span class="p">).</span><span class="nf">to</span> <span class="n">eq</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+  <span class="n">expect</span><span class="p">(</span><span class="no">Tweet</span><span class="p">.</span><span class="nf">first</span><span class="p">.</span><span class="nf">was_tweeted</span><span class="p">).</span><span class="nf">to</span> <span class="n">eq</span><span class="p">(</span><span class="kp">true</span><span class="p">)</span>
+<span class="k">end</span></code></pre></figure>
+
+<p>Voilà, a green test suite. I can confirm this is working correctly as I had another test that checked that a tweet would not be posted if the <code class="highlighter-rouge">scheduled_time</code> did not yet happen. With that test, <code class="highlighter-rouge">successes</code> and <code class="highlighter-rouge">failures</code> were both 0 as the queued job’s time did not happen and so the <code class="highlighter-rouge">Delayed::Job.count</code> was still at 1.</p>
+
+
+  </div>
+</div>
+
+<hr>
+
+    <!-- <script defer>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+    (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+    m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+    })(window,document,'script','//giddygourmand.com/analytics.js','ga');
+
+    ga('create', 'UA-86794210-1', 'auto');
+    ga('require', 'linkid');
+    ga('send', 'pageview');
+</script> -->
+<script src="//ajax.googleapis.com/ajax/libs/webfont/1.5.18/webfont.js" defer></script>
+<script type="text/javascript" src="/assets/vendor-405c11704bae3e1ea2b497b26c67bac91ce3efdc428e5957afb967782bd75c43.js" defer></script>
+<script type="text/javascript" src="/assets/site-172b9236c8c656811b590a8a2a0c046677f967282807212ba1efdbd6fcaf97f1.js" defer></script>
+
+  </body>
+</html>
